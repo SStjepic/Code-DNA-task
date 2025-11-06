@@ -1,4 +1,4 @@
-package ziptool;
+package tool;
 
 import java.io.BufferedWriter;
 import java.io.FileNotFoundException;
