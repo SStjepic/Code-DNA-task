@@ -1,54 +1,58 @@
 package tool;
 
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.List;
 
 
 public class FileComparator {
 
-    private long simHashValue(List<String> features) {
-        int[] vector = new int[64];
+    private final int fingerprintLength = 512;
 
-        for (String feature : features) {
-            long hash = hash64(feature);  // 64-bit hash
+    private byte[] simHashValue(List<String> features) {
+        int[] vector = new int[fingerprintLength];
+        MessageDigest digest;
+        try {
+            digest = MessageDigest.getInstance("SHA-512");
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException(e);
+        }
 
-            for (int i = 0; i < 64; i++) {
-                if (((hash >> i) & 1L) == 1) {
-                    vector[i] += 1;
-                } else {
-                    vector[i] -= 1;
+        for (String line : features) {
+            byte[] hash = digest.digest(line.getBytes(StandardCharsets.UTF_8));
+
+            for (int b = 0; b < hash.length; b++) {
+                for (int bit = 0; bit < 8; bit++) {
+                    int pos = b * 8 + bit;
+                    if (pos >= fingerprintLength) break;
+                    boolean bitSet = ((hash[b] >> (7 - bit)) & 1) == 1;
+                    vector[pos] += bitSet ? 1 : -1;
                 }
             }
         }
 
-        long simhash = 0L;
-        for (int i = 0; i < 64; i++) {
-            if (vector[i] > 0) simhash |= (1L << i);
+        byte[] fingerprint = new byte[fingerprintLength];
+        for (int i = 0; i < fingerprintLength; i++) {
+            fingerprint[i] = (byte) (vector[i] > 0 ? 1 : 0);
         }
 
-        return simhash;
+        return fingerprint;
     }
 
-    private long hash64(String s) {
-        final long FNV_64_PRIME = 0x100000001b3L;
-        long hash = 0xcbf29ce484222325L;
-
-        for (char c : s.toCharArray()) {
-            hash ^= c;
-            hash *= FNV_64_PRIME;
+    public int hammingDistance(byte[] a, byte[] b) {
+        int diff = 0;
+        for (int i = 0; i < fingerprintLength; i++) {
+            if (a[i] != b[i]) diff++;
         }
-
-        return hash;
+        return diff;
     }
 
-    private int hammingDistance(long hash1, long hash2) {
-        return Long.bitCount(hash1 ^ hash2);
-    }
-
-    private double similarity(long hash1, long hash2) {
-        int distance = hammingDistance(hash1, hash2);
-        return (1 - distance / 64.0) * 100.0;
+    public double similarity(byte[] a, byte[] b) {
+        int distance = hammingDistance(a, b);
+        return (1 - (distance/(double)fingerprintLength)) * 100.0;
     }
 
     /**
@@ -64,8 +68,8 @@ public class FileComparator {
         List<String> file1 = Files.readAllLines(Path.of(firstPath));
         List<String> file2 = Files.readAllLines(Path.of(secondPath));
 
-        long hash1 = simHashValue(file1);
-        long hash2 = simHashValue(file2);
+        byte[] hash1 = simHashValue(file1);
+        byte[] hash2 = simHashValue(file2);
 
         return similarity(hash1, hash2);
     }
